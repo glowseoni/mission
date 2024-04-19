@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, version } from "react";
 
 import './Map.css'
 import Map from 'ol/Map.js';
@@ -12,11 +12,11 @@ import { Circle as CircleStyle, Fill, Stroke, Style } from 'ol/style.js';
 import { LineString, Polygon } from "ol/geom.js";
 import { getArea, getLength } from 'ol/sphere.js';
 
-import { Overlay } from "ol"; 
+import { Overlay, Tile } from "ol"; 
 import { unByKey } from 'ol/Observable.js';
 import { bbox } from 'ol/loadingstrategy.js';
 
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@material-ui/core';
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, useScrollTrigger } from '@material-ui/core';
 import { ChromePicker } from 'react-color';
 import { click } from "ol/events/condition.js";
 import Select from 'ol/interaction/Select.js';
@@ -24,6 +24,7 @@ import Select from 'ol/interaction/Select.js';
 import proj4 from 'proj4';
 import { register } from "ol/proj/proj4.js";
 import Projection from "ol/proj/Projection.js";
+import axios from "axios";
 
 // 좌표계 설정 관련 
 proj4.defs([
@@ -106,11 +107,11 @@ function Main() {
 
     const [map, setMap] = useState('');
 
-    const addedLayers = useRef([]);
-    
     const [measureType, setMeasureType] = useState('');
-    const [layerSelect, setLayerSelect] = useState('layer list');
-    const [layerType, setLayerType] = useState(null);
+    const [layerSelect, setLayerSelect] = useState('');
+    const [layerType, setLayerType] = useState('');
+
+    const [addedLayers, setAddedLayers] = useState('');
 
     const [vectorStyleBtn, setVectorStyleBtn] = useState(false);
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -125,15 +126,20 @@ function Main() {
     const [circleLineWidth, setCircleLineWidth] = useState(1);
     const [circleFillColor, setCircleFillColor] = useState('#000000');
 
-    const [vectorLayers, setVectorLayers] = useState(null);
+    const [vectorLayers, setVectorLayers] = useState('');
     const [selectedVectorFeature, setSelectedVectorFeature] = useState('');
+    const [selectedFeatureCoordinate, setSelectedFeatureCoordinate] = useState('');
 
     const [popupOpen, setPopupOpen] = useState(false);
     const [selectedVectorFeatureInfo, setSelectedVectorFeatureInfo] = useState('');
 
-    const [tileLayers, setTileLayers] = useState('');
     const [tileFilterBtn, setTileFilterBtn] = useState(false);
     const [inputFilter, setInputFilter] = useState(null);
+
+    const [tileWmsInfo, setTileWmsInfo] = useState(null);
+    const [tileWmsClicked, setTileWmsClicked] = useState(false);
+    const [tileWmsSource, setWmsSource] = useState('');
+    const [tileWmsView, setTileWmsView] = useState('');
 
     const projection = new Projection({
         code: "EPSG:3857",
@@ -142,7 +148,6 @@ function Main() {
     // 기본 배경 지도 OSM
     useEffect(() => {
 
-        // map이 없을 때를 지정해줘야 함 
         if(!map) {
             const raster = new TileLayer({
                 source: new OSM(),
@@ -154,7 +159,7 @@ function Main() {
                 element: container,
             });
 
-            const map = new Map({
+            const defaultMap = new Map({
                 layers: [raster],
                 overlays: [infoOverlay],
                 target: 'map',
@@ -166,28 +171,32 @@ function Main() {
                 }),
             },);
 
-            setMap( map ) 
+            setMap( defaultMap ) 
         }
-        
+
         return () => {
             if(map) {
                 map.dispose();
             }
         };
 
-    }, [map]);
-    
+    },[map]);
+
+    // 버튼 클릭 시 value(lingString, polygon)에 따라 measureType State (거리, 면적)
+    function measureTypeSelect (e) {
+        setMeasureType(e.target.value);
+    }
+
     // measure
     useEffect(() => {
         if (map && measureType) {
 
-            if(addedLayers) {
-                addedLayers.current.forEach(layer => {
+            if (addedLayers) {
+                addedLayers.forEach(layer => {
                     map.removeLayer(layer);
                 });
-                addedLayers.current = [];
             }
-
+            
             const source = new VectorSource();
 
             const measureLayer = new VectorLayer({
@@ -365,15 +374,10 @@ function Main() {
             }),
         }),
     });
-    
-    // 버튼 클릭 시 value(lingString, polygon)에 따라 measureType State (거리, 면적)
-    function measureTypeSelect (e) {
-        const type = e.target.value;
-        setMeasureType(type);
-    }
 
     // select option 선택 할 경우 해당 value(레이어 목록) 값으로 변경
     const layerSelectChange = (e) => {
+        setTileWmsInfo(null);
         setLayerSelect(e.target.value);
         setLayerType(null); 
     };
@@ -381,105 +385,71 @@ function Main() {
     // button 클릭 시 지정해준 type(tile, vector)으로 LayerType State (tile, vector)
     const layerTypeChange = (type) => {
         setLayerType(type); 
-
-        if(addedLayers) {
-            addedLayers.current.forEach(layer => {
-                map.removeLayer(layer);
-            });
-            addedLayers.current = [];
-        }
-        
     };
 
     // type에 따른 layer 생성
     useEffect(() => {
-        if (map && layerSelect && layerType !== null) {
-            
+        if(map && layerSelect && layerType) {
+
+            if (addedLayers) {
+                addedLayers.forEach(layer => {
+                    map.removeLayer(layer);
+                });
+            }
+
             let layerToAdd = null;
 
-            if (layerType === 'tile') {
+            if(layerType === 'tile') {
                 layerToAdd = createTileLayer(layerSelect);
-
-                if(layerSelect !== 'admin_emd') {
-                    setTileFilterBtn(false);
-                }
 
                 setVectorStyleBtn(false);
 
+                if(layerSelect === 'admin_emd') {
+                    setTileFilterBtn(true);
+                } else {
+                    setTileFilterBtn(false);
+                }
+
+
             } else if (layerType === 'vector') {
-                layerToAdd = createVectorLayer(layerSelect)
-                setTileFilterBtn(false);
+                layerToAdd = createVectorLayer(layerSelect);
+
             }
-    
-            if (layerToAdd) {
-                map.addLayer(layerToAdd);
-                addedLayers.current.push(layerToAdd);
-            }
-            
-        }
-    }, [map, layerSelect, layerType]);
-    
-    // Tile layer 생성 함수
-    function createTileLayer(layerSelect, inputFilter) {
-        
-        setTileFilterBtn(true);
-        
-        // layer을 비워줘야 가능함 -> layer가 추가되고 제거해줘야 하는 부분 잘 고려해야함 
-        if(addedLayers) {
-            addedLayers.current.forEach(layer => {
-                map.removeLayer(layer);
-            });
-            addedLayers.current = [];
+
+            // 레이어 배열로 설정해야함 
+            setAddedLayers([layerToAdd]);
+
+            map.addLayer(layerToAdd);
         }
 
+    },[map, layerSelect, layerType]);
+
+    // Tile layer 생성 함수
+    function createTileLayer(layerSelect, inputFilter) {
         let params = {
+            version: '1.3.0',
             'LAYERS': `mission:${layerSelect}`,
             'TILED': true,
         };
-    
+
         if(inputFilter !== null) {
             params['CQL_FILTER'] = inputFilter;
         }
-        
+
         const wmsSource = new TileWMS({
             url: 'http://127.0.0.1:8080/geoserver/wms',
             params: params,
             serverType: 'geoserver',
-            transition: 0,
+            // transition: 0,
         });
 
         const tileLayer = new TileLayer({
-            extent: [14043736.988321789, 4464228.199967377, 14227185.856206212, 4571240.039566623],
+            // extent: [14043736.988321789, 4464228.199967377, 14227185.856206212, 4571240.039566623],
             source: wmsSource,
         });
 
-        const view = new View({
-            center: [0, 0],
-            zoom: 1,
-        });
+        setWmsSource(wmsSource);
         
-        const proj = projection.getCode();
-
-        map.on('singleclick', function (e) {
-            const viewResolution = (view.getResolution());
-            const url = wmsSource.getFeatureInfoUrl(
-                e.coordinate,
-                viewResolution,
-                proj,
-                {'INFO_FORMAT': 'application/json'}
-            );
-
-            setTileLayers(url);
-        
-            if(url) {
-                fetch(url)
-                .then((response) => response.text())
-                .then((html) => {
-                    document.getElementById('info').innerHTML = html;
-                });
-            }
-        });
-
         return tileLayer;
     }
 
@@ -489,22 +459,58 @@ function Main() {
 
     // input 값으로 tileLayer filter 적용 함수 
     function inputFilterApply()  {
-
-        if(addedLayers) {
-            addedLayers.current.forEach(layer => {
-            map.removeLayer(layer);
-            });
-            addedLayers.current = [];
-        }
         
+        if (addedLayers) {
+            addedLayers.forEach(layer => {
+                map.removeLayer(layer);
+            });
+        }
+
         const newLayer = createTileLayer(layerSelect, inputFilter);
 
-        if (newLayer) {
         map.addLayer(newLayer);
-        addedLayers.current.push(newLayer);
-        }
-        
+    
     };
+
+    const getWmsData = function (e) {
+        console.log('e.coordinate: ', e.coordinate);
+        // setTileWmsInfo('');
+        // setTileWmsClicked(true);
+
+        const viewResolution = map.getView().getResolution();
+        // const proj = projection.getCode();
+
+        const url = tileWmsSource.getFeatureInfoUrl(
+            e.coordinate,   
+            viewResolution,
+            'EPSG:3857',
+            {'INFO_FORMAT': 'application/json'}
+        );
+
+        if (url) {
+            axios.get(url).then((response) => {
+                if(response.data.features[0] === undefined) {
+                    console.log('tile Data 없음')
+                } 
+                else {
+                    setTileWmsInfo(response.data.features[0].properties);
+                }
+            });
+        } 
+        
+    }
+
+    useEffect(() => {
+
+        if(addedLayers && layerType === 'tile') {
+            
+            map.on("singleclick", getWmsData);
+
+            return () => {
+                map.un("singleclick", getWmsData);
+            }
+        };
+    }, [map, addedLayers, layerType, tileWmsClicked]);
 
     // Vector layer 생성 함수
     function createVectorLayer(layerSelect) {
@@ -539,6 +545,7 @@ function Main() {
             source: vectorSource,
         });
 
+        setVectorStyleBtn(true);
         setVectorLayers(vectorOverlay);
 
         map.on('click', function (e) {
@@ -550,15 +557,12 @@ function Main() {
             map.getOverlays().getArray()[0].setPosition(coordinate);
         });
 
-        // 스타일 변경 버튼 활성화
-        setVectorStyleBtn(true);
-
-        // 여기서는 vectorLayers가 아니라 vectorOverlay를 반환해줘야함
-        // setState를 했다고 해서 바로 변경이 되는 것이 아니기 때문에 -> 비동기 개념 
         return vectorOverlay;
+
     }
 
-    const selected = new Style({
+    const selected = 
+        new Style({
         fill: new Fill({
             color: '#eeeeee',
         }),
@@ -578,8 +582,7 @@ function Main() {
         condition: click,
         style: selectStyle,
     });
-
-    const [selectedFeatureCoordinate, setSelectedFeatureCoordinate] = useState('');
+    
     const container = document.getElementById('popup');
 
     selectClick.on('select', (e) => {
@@ -600,19 +603,18 @@ function Main() {
     function getVectorLayerType(layer) {
         const layerType = layer.getSource().getFeatures()[0].getGeometry().getType();
         setVectorLayerType(layerType);
-        console.log(layerType);
     }
-    
+
     // 모달창이 활성화 될 때 해당 layer의 type을 setState
-    const handleDialogOpen = () => {
+    const vectorStyleDialogOpen = () => {
         setDialogOpen(true);
         getVectorLayerType(vectorLayers);
     };
 
-    const handleDialogClose = () => {
+    const vectorStyleDialogClose = () => {
         setDialogOpen(false);
     };
-    
+
     // vectorLayer 스타일 변경 관련
     const lineColorChange = (color) => {
         setLineColor(color);
@@ -689,7 +691,7 @@ function Main() {
             }
         })
 
-        handleDialogClose();
+        vectorStyleDialogClose();
     }
 
     return (
@@ -701,6 +703,7 @@ function Main() {
 
             <button onClick={measureTypeSelect} value='LineString'> 거리 측정 </button>
             <button onClick={measureTypeSelect} value='Polygon'> 면적 측정 </button>
+        
 
             <label>
                 <select onChange={layerSelectChange}>
@@ -717,9 +720,11 @@ function Main() {
 
             <button onClick={() => layerTypeChange('tile')}> Tile 가져오기 </button>
             <button onClick={() => layerTypeChange('vector')}> Vector 가져오기 </button>
-            
+
+            {vectorStyleBtn && <button onClick={vectorStyleDialogOpen}> 스타일 </button>}
+
             {dialogOpen && (
-                <Dialog open={dialogOpen} onClose={handleDialogClose}>
+                <Dialog open={dialogOpen} onClose={vectorStyleDialogClose}>
                     <DialogTitle>스타일 변경</DialogTitle>
 
                     <DialogContent>
@@ -813,13 +818,15 @@ function Main() {
 
                     <DialogActions>
                         <Button onClick={featureStyleChange}> 저장 </Button>
-                        <Button onClick={handleDialogClose}> 취소 </Button>
+                        <Button onClick={vectorStyleDialogClose}> 취소 </Button>
                     </DialogActions>
 
                 </Dialog>
             )}
-            
-            <div id="popup" className="ol-popup">
+
+        </div>
+
+        <div id="popup" className="ol-popup">
                 <a href="#" id="popup-closer" className="ol-popup-closer" onClick={() => setPopupOpen(false)}/>
                 <table>
                     <tbody>
@@ -835,31 +842,9 @@ function Main() {
                     })}
                     </tbody>
                 </table>
-            </div>
-
-            <div id="info"> 
-            
-                <table>
-                    <tbody>
-                    {Object.keys(tileLayers).map((item, idx) => {
-                        if (tileLayers) {
-                        return (
-                            <tr key={idx}>
-                                <td>{item}</td>
-                                <td>{tileLayers[item]}</td>
-                            </tr>
-                        )
-                        }
-                    })}
-                    </tbody>
-                </table>
-
-            </div>
-
         </div>
 
         <div>
-
             {tileFilterBtn && (
                 <>
                 <input type="text" onChange={inputFilterChange}/>
@@ -867,9 +852,23 @@ function Main() {
                 </>
             )}
 
-            {vectorStyleBtn && <button onClick={handleDialogOpen}> 스타일 변경 </button>}
-        
+            {tileWmsInfo ? (
+                <table>
+                    <tbody>
+                    {Object.keys(tileWmsInfo).map((item, idx) => {
+                        return (
+                            <tr key={idx}>
+                                <td>{item}</td>
+                                <td>{tileWmsInfo[item]}</td>
+                            </tr>
+                        )
+                        
+                    })}
+                    </tbody>
+                </table>
+            ) : null}
         </div>
+
 
         </>
     )
