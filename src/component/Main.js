@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, version } from "react";
+import { useState, useEffect } from "react";
 
 import './Map.css'
 import Map from 'ol/Map.js';
@@ -12,11 +12,11 @@ import { Circle as CircleStyle, Fill, Stroke, Style } from 'ol/style.js';
 import { LineString, Polygon } from "ol/geom.js";
 import { getArea, getLength } from 'ol/sphere.js';
 
-import { Overlay, Tile } from "ol"; 
+import { Overlay } from "ol"; 
 import { unByKey } from 'ol/Observable.js';
 import { bbox } from 'ol/loadingstrategy.js';
 
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, useScrollTrigger } from '@material-ui/core';
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@material-ui/core';
 import { ChromePicker } from 'react-color';
 import { click } from "ol/events/condition.js";
 import Select from 'ol/interaction/Select.js';
@@ -108,6 +108,7 @@ function Main() {
     const [map, setMap] = useState('');
 
     const [measureType, setMeasureType] = useState('');
+    const [measureTF, setMeasureTF] = useState(0);
     const [layerSelect, setLayerSelect] = useState('');
     const [layerType, setLayerType] = useState('');
 
@@ -129,17 +130,13 @@ function Main() {
     const [vectorLayers, setVectorLayers] = useState('');
     const [selectedVectorFeature, setSelectedVectorFeature] = useState('');
     const [selectedFeatureCoordinate, setSelectedFeatureCoordinate] = useState('');
-
-    const [popupOpen, setPopupOpen] = useState(false);
     const [selectedVectorFeatureInfo, setSelectedVectorFeatureInfo] = useState('');
 
     const [tileFilterBtn, setTileFilterBtn] = useState(false);
     const [inputFilter, setInputFilter] = useState(null);
 
     const [tileWmsInfo, setTileWmsInfo] = useState(null);
-    const [tileWmsClicked, setTileWmsClicked] = useState(false);
     const [tileWmsSource, setWmsSource] = useState('');
-    const [tileWmsView, setTileWmsView] = useState('');
 
     const projection = new Projection({
         code: "EPSG:3857",
@@ -185,6 +182,7 @@ function Main() {
     // 버튼 클릭 시 value(lingString, polygon)에 따라 measureType State (거리, 면적)
     function measureTypeSelect (e) {
         setMeasureType(e.target.value);
+        setMeasureTF(a => a + 1);
     }
 
     // measure
@@ -196,7 +194,8 @@ function Main() {
                     map.removeLayer(layer);
                 });
             }
-            
+            setTileFilterBtn(false);
+
             const source = new VectorSource();
 
             const measureLayer = new VectorLayer({
@@ -270,7 +269,7 @@ function Main() {
             });
             
         }
-    },[map, measureType]);
+    },[map, measureType, measureTF]);
 
     // measure 관련 
     let sketch;
@@ -375,6 +374,10 @@ function Main() {
         }),
     });
 
+    function measureDelete() {
+
+    }
+    
     // select option 선택 할 경우 해당 value(레이어 목록) 값으로 변경
     const layerSelectChange = (e) => {
         setTileWmsInfo(null);
@@ -410,10 +413,9 @@ function Main() {
                     setTileFilterBtn(false);
                 }
 
-
             } else if (layerType === 'vector') {
                 layerToAdd = createVectorLayer(layerSelect);
-
+                setTileFilterBtn(false);
             }
 
             // 레이어 배열로 설정해야함 
@@ -472,18 +474,16 @@ function Main() {
     
     };
 
+    // WMS 정보 데이터 관련 
     const getWmsData = function (e) {
-        console.log('e.coordinate: ', e.coordinate);
-        // setTileWmsInfo('');
-        // setTileWmsClicked(true);
 
         const viewResolution = map.getView().getResolution();
-        // const proj = projection.getCode();
+        const proj = projection.getCode();
 
         const url = tileWmsSource.getFeatureInfoUrl(
             e.coordinate,   
             viewResolution,
-            'EPSG:3857',
+            proj,
             {'INFO_FORMAT': 'application/json'}
         );
 
@@ -510,7 +510,8 @@ function Main() {
                 map.un("singleclick", getWmsData);
             }
         };
-    }, [map, addedLayers, layerType, tileWmsClicked]);
+    }, [map, addedLayers, layerType]);
+
 
     // Vector layer 생성 함수
     function createVectorLayer(layerSelect) {
@@ -561,6 +562,7 @@ function Main() {
 
     }
 
+    // vector feature 선택 관련
     const selected = 
         new Style({
         fill: new Fill({
@@ -583,7 +585,7 @@ function Main() {
         style: selectStyle,
     });
     
-    const container = document.getElementById('popup');
+    const popup = document.getElementById('popup');
 
     selectClick.on('select', (e) => {
         const selectedFeature = e.selected;
@@ -593,11 +595,15 @@ function Main() {
             setSelectedVectorFeatureInfo(selectedFeature[0].getProperties());
             setSelectedFeatureCoordinate(e.coordinate);
 
-            container.style.display = 'block';
+            popup.style.display = 'block';
         } else {
-            container.style.display = 'none';
+            popup.style.display = 'none';
         }
     });
+
+    function vectorInfoPopupClose() {
+        popup.style.display = 'none';
+    }
 
     // 생성되어 있는 vector 레이어의 타입 구분 
     function getVectorLayerType(layer) {
@@ -699,29 +705,46 @@ function Main() {
 
         <div id="map" value={map}></div>
 
-        <div>
+        <div className="container">
 
-            <button onClick={measureTypeSelect} value='LineString'> 거리 측정 </button>
-            <button onClick={measureTypeSelect} value='Polygon'> 면적 측정 </button>
-        
+            <div className="measureBtn">
+                <button onClick={measureTypeSelect} value='LineString'> 거리 측정 </button>
+                <button onClick={measureTypeSelect} value='Polygon'> 면적 측정 </button>
+                <button onClick={measureDelete}> 도형 삭제 </button>
+            </div>
 
-            <label>
-                <select onChange={layerSelectChange}>
-                    <option value="layer list"> 레이어 목록 </option>
-                    <option value="admin_emd"> admin_emd </option>
-                    <option value="admin_sgg"> admin_sgg </option>
-                    <option value="admin_sid"> admin_sid </option>
-                    <option value="river"> river </option>
-                    <option value="road_link2"> road_link2 </option>
-                    <option value="subway"> subway </option>
-                    <option value="subway_station"> subway_station </option>
-                </select>
-            </label>
+            <div className="addItems">
+            
+                {tileFilterBtn && (
+                    <>
+                        <input id="wmsInput" type="text" onChange={inputFilterChange}/>
+                        <button id="wmsBtn" onClick= {inputFilterApply}> 적용 </button>
+                    </>
+                )}
 
-            <button onClick={() => layerTypeChange('tile')}> Tile 가져오기 </button>
-            <button onClick={() => layerTypeChange('vector')}> Vector 가져오기 </button>
+                {vectorStyleBtn &&
+                    <button onClick={vectorStyleDialogOpen}> 스타일 </button>
+                }
 
-            {vectorStyleBtn && <button onClick={vectorStyleDialogOpen}> 스타일 </button>}
+            </div>
+
+            <div className="layerCreate">
+                <label>
+                    <select onChange={layerSelectChange}>
+                        <option value="layer list"> 레이어 목록 </option>
+                        <option value="admin_emd"> admin_emd </option>
+                        <option value="admin_sgg"> admin_sgg </option>
+                        <option value="admin_sid"> admin_sid </option>
+                        <option value="river"> river </option>
+                        <option value="road_link2"> road_link2 </option>
+                        <option value="subway"> subway </option>
+                        <option value="subway_station"> subway_station </option>
+                    </select>
+                </label>
+
+                <button onClick={() => layerTypeChange('tile')}> Tile 가져오기 </button>
+                <button onClick={() => layerTypeChange('vector')}> Vector 가져오기 </button>
+            </div>
 
             {dialogOpen && (
                 <Dialog open={dialogOpen} onClose={vectorStyleDialogClose}>
@@ -827,7 +850,7 @@ function Main() {
         </div>
 
         <div id="popup" className="ol-popup">
-                <a href="#" id="popup-closer" className="ol-popup-closer" onClick={() => setPopupOpen(false)}/>
+            <a href="#" id="popup-closer" className="ol-popup-closer" onClick={vectorInfoPopupClose}></a>
                 <table>
                     <tbody>
                     {Object.keys(selectedVectorFeatureInfo).map((item, idx) => {
@@ -844,29 +867,32 @@ function Main() {
                 </table>
         </div>
 
-        <div>
-            {tileFilterBtn && (
-                <>
-                <input type="text" onChange={inputFilterChange}/>
-                <button onClick= {inputFilterApply}> 적용 </button>
-                </>
-            )}
-
+        <div className="wmsInfo">
+            
             {tileWmsInfo ? (
-                <table>
-                    <tbody>
-                    {Object.keys(tileWmsInfo).map((item, idx) => {
-                        return (
-                            <tr key={idx}>
-                                <td>{item}</td>
-                                <td>{tileWmsInfo[item]}</td>
-                            </tr>
-                        )
-                        
-                    })}
-                    </tbody>
-                </table>
+                <table id="wmsTable">
+                <thead>
+                    <tr>
+                        {Object.keys(tileWmsInfo).map((item, idx) => {
+                            return (
+                                <th key={idx}>{item}</th>
+                            )
+                        })}
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        {Object.values(tileWmsInfo).map((item, idx) => {
+                            return (
+                                <td key={idx}>{item}</td>
+                            )
+                        })}
+                    </tr>
+                </tbody>
+            </table>
             ) : null}
+
+            
         </div>
 
 

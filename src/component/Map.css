@@ -79,3 +79,78 @@ border-top-color: #ffcc33;
 .ol-popup-closer:after {
     content: "✖";
 }
+
+.container {
+    display: flex;
+    margin-top: 10px;
+}
+.measureBtn {
+    display: inline;
+    width: 100%;
+}
+.layerCreate {
+    display: inline-block;
+    width: 100%;
+    text-align: end;
+}
+.addItems {
+    display: inline-block;
+    width: 100%;
+    text-align: center;
+}
+.measureBtn button {
+    padding: 10px;
+    margin-left: 10px;
+    font-size: 15px;
+}
+.addItems Button{
+    padding: 10px;
+    font-size: 15px;
+}
+
+#wmsInput {
+    height: 40px;
+    font-size: 15px;
+    text-align: center;
+    display: inline;
+}
+
+#wmsBtn {
+    padding: 10px;
+    margin-left: 10px;
+    font-size: 15px;
+    display: inline-block;
+}
+
+.layerCreate button {
+    padding: 10px;
+    margin-right: 10px;
+    font-size: 15px;
+}
+
+.layerCreate select {
+    height: 43px;
+    margin-right: 10px;
+    font-size: 15px;
+}
+
+.wmsInfo {
+    margin-top: 10px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.wmsInfo button {
+    padding: 10px;
+    margin-left: 10px;
+    font-size: 15px;
+}
+
+#wmsTable {
+    border: 2px solid;
+    margin-top: 10px;
+    align-items: center;
+}
+#wmsTable th, tr, td {
+    border: 1px solid;
+}
