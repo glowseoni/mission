@@ -185,6 +185,7 @@ function Main() {
         setMeasureTF(a => a + 1);
     }
 
+    // measure
     const source = new VectorSource();
 
     const measureLayer = new VectorLayer({
