@@ -8,7 +8,7 @@ import { OSM,TileWMS } from 'ol/source.js';
 import { Vector as VectorSource } from 'ol/source.js';
 import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer.js';
 import { Draw } from 'ol/interaction.js';
-import { Circle as CircleStyle, Fill, Stroke, Style } from 'ol/style.js';
+import { Circle as CircleStyle, Fill, RegularShape, Stroke, Style } from 'ol/style.js';
 import { LineString, Polygon } from "ol/geom.js";
 import { getArea, getLength } from 'ol/sphere.js';
 
@@ -185,9 +185,23 @@ function Main() {
         setMeasureTF(a => a + 1);
     }
 
+    const source = new VectorSource();
+
+    const measureLayer = new VectorLayer({
+        title: 'measure',
+        source: source,
+        style: {
+            'fill-color': 'rgba(255, 255, 255, 0.2)',
+            'stroke-color': '#ffcc33',
+            'stroke-width': 2,
+            'circle-radius': 7,
+            'circle-fill-color': '#ffcc33',
+        },
+    });
+
     // measure
     useEffect(() => {
-        if (map && measureType) {
+        if (map && measureTF) {
 
             if (addedLayers) {
                 addedLayers.forEach(layer => {
@@ -195,24 +209,13 @@ function Main() {
                 });
             }
             setTileFilterBtn(false);
-
-            const source = new VectorSource();
-
-            const measureLayer = new VectorLayer({
-                source: source,
-                style: {
-                    'fill-color': 'rgba(255, 255, 255, 0.2)',
-                    'stroke-color': '#ffcc33',
-                    'stroke-width': 2,
-                    'circle-radius': 7,
-                    'circle-fill-color': '#ffcc33',
-                },
-            });
     
             map.on('pointermove', pointerMoveHandler);
 
             map.getViewport().addEventListener('mouseout', function () {
-            helpTooltipElement.classList.add('hidden');
+                if (helpTooltipElement) {
+                    helpTooltipElement.classList.add('hidden');
+                }
             });
 
             map.addLayer(measureLayer);
@@ -221,10 +224,10 @@ function Main() {
                 source: source,
                 type: measureType,
                 style: function (feature) {
-                const geometryType = feature.getGeometry().getType();
-                if (geometryType === measureType || geometryType === 'Point') {
-                    return style;
-                }
+                    const geometryType = feature.getGeometry().getType();
+                    if (geometryType === measureType || geometryType === 'Point') {
+                        return style;
+                    }
                 },    
             });
             map.addInteraction(draw);
@@ -236,7 +239,7 @@ function Main() {
             draw.on('drawstart', function (evt) {
                 sketch = evt.feature;
             
-              /** @type {import("../src/ol/coordinate.js").Coordinate|undefined} */
+                /** @type {import("../src/ol/coordinate.js").Coordinate|undefined} */
                 let tooltipCoord = evt.coordinate;
             
                 listener = sketch.getGeometry().on('change', function (evt) {
@@ -256,21 +259,23 @@ function Main() {
             
             draw.on('drawend', function () {
                 measureTooltipElement.className = 'ol-tooltip ol-tooltip-static';
+                //debugger;
                 measureTooltip.setOffset([0, -7]);
                 // unset sketch
                 sketch = null;
                 // unset tooltip so that a new one can be created
                 measureTooltipElement = null;
-                createMeasureTooltip();
+
                 unByKey(listener);
-    
                 // 그리기 끝나면 이전 interaction 제거 
                 map.removeInteraction(draw);
-            });
-            
-        }
-    },[map, measureType, measureTF]);
 
+                map.removeOverlay(helpTooltip);
+            });
+        
+        }
+    },[map, measureTF]);
+    
     // measure 관련 
     let sketch;
     let measureTooltipElement;
@@ -282,14 +287,15 @@ function Main() {
     const continueLineMsg = 'Click to continue drawing the line';
 
     const pointerMoveHandler = function (evt) {
-        if (evt.dragging) {
+        if (evt.dragging || !helpTooltipElement) {
             return;
         }
         /** @type {string} */
         let helpMsg = 'Click to start drawing';
-    
+        
         if (sketch) {
             const geom = sketch.getGeometry();
+            
             if (geom instanceof Polygon) {
                 helpMsg = continuePolygonMsg;
             } else if (geom instanceof LineString) {
@@ -306,9 +312,9 @@ function Main() {
         const length = getLength(line);
         let output;
         if (length > 100) {
-          output = Math.round((length / 1000) * 100) / 100 + ' ' + 'km';
+            output = Math.round((length / 1000) * 100) / 100 + ' ' + 'km';
         } else {
-          output = Math.round(length * 100) / 100 + ' ' + 'm';
+            output = Math.round(length * 100) / 100 + ' ' + 'm';
         }
         return output;
     };
@@ -317,9 +323,9 @@ function Main() {
         const area = getArea(polygon);
         let output;
         if (area > 10000) {
-          output = Math.round((area / 1000000) * 100) / 100 + ' ' + 'km<sup>2</sup>';
+            output = Math.round((area / 1000000) * 100) / 100 + ' ' + 'km<sup>2</sup>';
         } else {
-          output = Math.round(area * 100) / 100 + ' ' + 'm<sup>2</sup>';
+            output = Math.round(area * 100) / 100 + ' ' + 'm<sup>2</sup>';
         }
         return output;
     };
@@ -331,11 +337,10 @@ function Main() {
         measureTooltipElement = document.createElement('div');
         measureTooltipElement.className = 'ol-tooltip ol-tooltip-measure';
         measureTooltip = new Overlay({
+            title: 'measureTooltipOverlay',
             element: measureTooltipElement,
             offset: [0, -15],
             positioning: 'bottom-center',
-            stopEvent: false,
-            insertFirst: false,
         });
         map.addOverlay(measureTooltip);
     }
@@ -375,6 +380,17 @@ function Main() {
     });
 
     function measureDelete() {
+        const measureLayer = map.getLayers().getArray().filter(item => item.get('title') === 'measure');
+
+        measureLayer.forEach(measureLayer => {
+            measureLayer.getSource().clear();
+        });
+        debugger;
+        const measureTooltipLayer = map.getOverlays().getArray().filter(item => item.getOptions().title === 'measureTooltipOverlay');
+        
+        measureTooltipLayer.forEach(measureTooltipLayer => {
+            map.removeOverlay(measureTooltipLayer);
+        });
 
     }
     
@@ -442,11 +458,10 @@ function Main() {
             url: 'http://127.0.0.1:8080/geoserver/wms',
             params: params,
             serverType: 'geoserver',
-            // transition: 0,
         });
 
         const tileLayer = new TileLayer({
-            // extent: [14043736.988321789, 4464228.199967377, 14227185.856206212, 4571240.039566623],
+            extent: [14043736.988321789, 4464228.199967377, 14227185.856206212, 4571240.039566623],
             source: wmsSource,
         });
 
