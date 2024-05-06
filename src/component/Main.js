@@ -108,7 +108,7 @@ function Main() {
     const [map, setMap] = useState('');
 
     const [measureType, setMeasureType] = useState('');
-    const [measureTF, setMeasureTF] = useState(0);
+    const [measureTF, setMeasureTF] = useState(false);
     const [layerSelect, setLayerSelect] = useState('');
     const [layerType, setLayerType] = useState('');
 
@@ -182,7 +182,7 @@ function Main() {
     // 버튼 클릭 시 value(lingString, polygon)에 따라 measureType State (거리, 면적)
     function measureTypeSelect (e) {
         setMeasureType(e.target.value);
-        setMeasureTF(a => a + 1);
+        setMeasureTF(true);
     }
 
     // measure
@@ -260,7 +260,7 @@ function Main() {
             
             draw.on('drawend', function () {
                 measureTooltipElement.className = 'ol-tooltip ol-tooltip-static';
-                //debugger;
+                
                 measureTooltip.setOffset([0, -7]);
                 // unset sketch
                 sketch = null;
@@ -272,6 +272,7 @@ function Main() {
                 map.removeInteraction(draw);
 
                 map.removeOverlay(helpTooltip);
+                setMeasureTF(false);
             });
         
         }
@@ -380,13 +381,14 @@ function Main() {
         }),
     });
 
+    // 도형 삭제
     function measureDelete() {
         const measureLayer = map.getLayers().getArray().filter(item => item.get('title') === 'measure');
 
         measureLayer.forEach(measureLayer => {
             measureLayer.getSource().clear();
         });
-        debugger;
+        
         const measureTooltipLayer = map.getOverlays().getArray().filter(item => item.getOptions().title === 'measureTooltipOverlay');
         
         measureTooltipLayer.forEach(measureTooltipLayer => {
