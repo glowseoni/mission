@@ -7,9 +7,9 @@ import GeoJSON from 'ol/format/GeoJSON.js';
 import { OSM,TileWMS } from 'ol/source.js';
 import { Vector as VectorSource } from 'ol/source.js';
 import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer.js';
-import { Draw } from 'ol/interaction.js';
-import { Circle as CircleStyle, Fill, RegularShape, Stroke, Style } from 'ol/style.js';
-import { LineString, Polygon } from "ol/geom.js";
+import { Draw, Modify, Snap } from 'ol/interaction.js';
+import { Circle as CircleStyle, Fill, RegularShape, Stroke, Style, Text } from 'ol/style.js';
+import { Circle, LineString, Point, Polygon } from "ol/geom.js";
 import { getArea, getLength } from 'ol/sphere.js';
 
 import { Overlay } from "ol"; 
@@ -25,6 +25,8 @@ import proj4 from 'proj4';
 import { register } from "ol/proj/proj4.js";
 import Projection from "ol/proj/Projection.js";
 import axios from "axios";
+
+import GML from 'ol/format/GML.js';
 
 // 좌표계 설정 관련 
 proj4.defs([
@@ -112,6 +114,9 @@ function Main() {
     const [layerSelect, setLayerSelect] = useState('');
     const [layerType, setLayerType] = useState('');
 
+    const [segmentChecked, setSegmentChecked] = useState(true);
+    const [clearPreviousChecked, setClearPreviousChecked] = useState(true);
+
     const [addedLayers, setAddedLayers] = useState('');
 
     const [vectorStyleBtn, setVectorStyleBtn] = useState(false);
@@ -137,6 +142,10 @@ function Main() {
 
     const [tileWmsInfo, setTileWmsInfo] = useState(null);
     const [tileWmsSource, setWmsSource] = useState('');
+
+    const [figureLayerSelected, setFigureLayerSelected] = useState('')
+    const [figureLayerTF, setFigureLayerTF] = useState(false);
+    const [figureDrawType, setFigureDrawType] = useState('');
 
     const projection = new Projection({
         code: "EPSG:3857",
@@ -185,182 +194,29 @@ function Main() {
         setMeasureTF(true);
     }
 
-    // measure
-    const source = new VectorSource();
+    // 체크박스 선택에 따라 true, false State
+    const handleSegmentsChange = () => {
+        setSegmentChecked(!segmentChecked);
+    };
 
-    const measureLayer = new VectorLayer({
-        title: 'measure',
-        source: source,
-        style: {
-            'fill-color': 'rgba(255, 255, 255, 0.2)',
-            'stroke-color': '#ffcc33',
-            'stroke-width': 2,
-            'circle-radius': 7,
-            'circle-fill-color': '#ffcc33',
-        },
+    const handleClearChange = (e) => {
+        setClearPreviousChecked(!clearPreviousChecked);
+    };
+
+    // measure 관련
+    const showSegment = document.getElementById('segments');
+    const clearPrevious = document.getElementById('clear');
+
+    const measureVectorSource = new VectorSource()
+    
+    const measureVectorLayer = new VectorLayer({
+        source: measureVectorSource,
+        title: "measureVector",
+        style: function (feature) {
+            return styleFunction(feature, showSegment.checked)
+        }
     });
 
-    // measure
-    useEffect(() => {
-        if (map && measureTF) {
-
-            if (addedLayers) {
-                addedLayers.forEach(layer => {
-                    map.removeLayer(layer);
-                });
-            }
-            setTileFilterBtn(false);
-    
-            map.on('pointermove', pointerMoveHandler);
-
-            map.getViewport().addEventListener('mouseout', function () {
-                if (helpTooltipElement) {
-                    helpTooltipElement.classList.add('hidden');
-                }
-            });
-
-            map.addLayer(measureLayer);
-    
-            const draw = new Draw({
-                source: source,
-                type: measureType,
-                style: function (feature) {
-                    const geometryType = feature.getGeometry().getType();
-                    if (geometryType === measureType || geometryType === 'Point') {
-                        return style;
-                    }
-                },    
-            });
-            map.addInteraction(draw);
-    
-            createMeasureTooltip();
-            createHelpTooltip();
-            
-            let listener;
-            draw.on('drawstart', function (evt) {
-                sketch = evt.feature;
-            
-                /** @type {import("../src/ol/coordinate.js").Coordinate|undefined} */
-                let tooltipCoord = evt.coordinate;
-            
-                listener = sketch.getGeometry().on('change', function (evt) {
-                const geom = evt.target;
-                let output;
-                if (geom instanceof Polygon) {
-                    output = formatArea(geom);
-                    tooltipCoord = geom.getInteriorPoint().getCoordinates();
-                } else if (geom instanceof LineString) {
-                    output = formatLength(geom);
-                    tooltipCoord = geom.getLastCoordinate();
-                }
-                measureTooltipElement.innerHTML = output;
-                measureTooltip.setPosition(tooltipCoord);
-                });
-            });
-            
-            draw.on('drawend', function () {
-                measureTooltipElement.className = 'ol-tooltip ol-tooltip-static';
-                
-                measureTooltip.setOffset([0, -7]);
-                // unset sketch
-                sketch = null;
-                // unset tooltip so that a new one can be created
-                measureTooltipElement = null;
-
-                unByKey(listener);
-                // 그리기 끝나면 이전 interaction 제거 
-                map.removeInteraction(draw);
-
-                map.removeOverlay(helpTooltip);
-                setMeasureTF(false);
-            });
-        
-        }
-    },[map, measureTF]);
-    
-    // measure 관련 
-    let sketch;
-    let measureTooltipElement;
-    let measureTooltip;
-    let helpTooltipElement;
-    let helpTooltip;
-
-    const continuePolygonMsg = 'Click to continue drawing the polygon';
-    const continueLineMsg = 'Click to continue drawing the line';
-
-    const pointerMoveHandler = function (evt) {
-        if (evt.dragging || !helpTooltipElement) {
-            return;
-        }
-        /** @type {string} */
-        let helpMsg = 'Click to start drawing';
-        
-        if (sketch) {
-            const geom = sketch.getGeometry();
-            
-            if (geom instanceof Polygon) {
-                helpMsg = continuePolygonMsg;
-            } else if (geom instanceof LineString) {
-                helpMsg = continueLineMsg;
-            }
-        }
-    
-        helpTooltipElement.innerHTML = helpMsg;
-        helpTooltip.setPosition(evt.coordinate);
-        helpTooltipElement.classList.remove('hidden');
-    };
-
-    const formatLength = function (line) {
-        const length = getLength(line);
-        let output;
-        if (length > 100) {
-            output = Math.round((length / 1000) * 100) / 100 + ' ' + 'km';
-        } else {
-            output = Math.round(length * 100) / 100 + ' ' + 'm';
-        }
-        return output;
-    };
-
-    const formatArea = function (polygon) {
-        const area = getArea(polygon);
-        let output;
-        if (area > 10000) {
-            output = Math.round((area / 1000000) * 100) / 100 + ' ' + 'km<sup>2</sup>';
-        } else {
-            output = Math.round(area * 100) / 100 + ' ' + 'm<sup>2</sup>';
-        }
-        return output;
-    };
-
-    function createMeasureTooltip() {
-        if (measureTooltipElement) {
-            measureTooltipElement.parentNode.removeChild(measureTooltipElement);
-        }
-        measureTooltipElement = document.createElement('div');
-        measureTooltipElement.className = 'ol-tooltip ol-tooltip-measure';
-        measureTooltip = new Overlay({
-            title: 'measureTooltipOverlay',
-            element: measureTooltipElement,
-            offset: [0, -15],
-            positioning: 'bottom-center',
-        });
-        map.addOverlay(measureTooltip);
-    }
-
-    function createHelpTooltip() {
-        if (helpTooltipElement) {
-            helpTooltipElement.parentNode.removeChild(helpTooltipElement);
-        }
-        helpTooltipElement = document.createElement('div');
-        helpTooltipElement.className = 'ol-tooltip hidden';
-        helpTooltip = new Overlay({
-            element: helpTooltipElement,
-            offset: [15, 0],
-            positioning: 'center-left',
-        });
-        map.addOverlay(helpTooltip);
-    }
-    
     const style = new Style({
         fill: new Fill({
             color: 'rgba(255, 255, 255, 0.2)',
@@ -376,23 +232,244 @@ function Main() {
                 color: 'rgba(0, 0, 0, 0.7)',
             }),
             fill: new Fill({
-            color: 'rgba(255, 255, 255, 0.2)',
+                color: 'rgba(255, 255, 255, 0.2)',
             }),
         }),
     });
 
+    const labelStyle = new Style({
+        text: new Text({
+            font: '14px Calibri,sans-serif',
+            fill: new Fill({
+                color: 'rgba(255, 255, 255, 1)',
+            }),
+            backgroundFill: new Fill({
+                color: 'rgba(0, 0, 0, 0.7)',
+            }),
+            padding: [3, 3, 3, 3],
+            textBaseline: 'bottom',
+            offsetY: -15,
+            }),
+            image: new RegularShape({
+            radius: 8,
+            points: 3,
+            angle: Math.PI,
+            displacement: [0, 10],
+            fill: new Fill({
+                color: 'rgba(0, 0, 0, 0.7)',
+            }),
+            }),
+        });
+        
+    const tipStyle = new Style({
+        text: new Text({
+        font: '12px Calibri,sans-serif',
+        fill: new Fill({
+            color: 'rgba(255, 255, 255, 1)',
+        }),
+        backgroundFill: new Fill({
+            color: 'rgba(0, 0, 0, 0.4)',
+        }),
+        padding: [2, 2, 2, 2],
+        textAlign: 'left',
+        offsetX: 15,
+        }),
+    });
+        
+    const modifyStyle = new Style({
+        image: new CircleStyle({
+        radius: 5,
+        stroke: new Stroke({
+            color: 'rgba(0, 0, 0, 0.7)',
+        }),
+        fill: new Fill({
+            color: 'rgba(0, 0, 0, 0.4)',
+        }),
+        }),
+        text: new Text({
+        text: 'Drag to modify',
+        font: '12px Calibri,sans-serif',
+        fill: new Fill({
+            color: 'rgba(255, 255, 255, 1)',
+        }),
+        backgroundFill: new Fill({
+            color: 'rgba(0, 0, 0, 0.7)',
+        }),
+        padding: [2, 2, 2, 2],
+        textAlign: 'left',
+        offsetX: 15,
+        }),
+    });
+        
+    const segmentStyle = new Style({
+        text: new Text({
+        font: '12px Calibri,sans-serif',
+        fill: new Fill({
+            color: 'rgba(255, 255, 255, 1)',
+        }),
+        backgroundFill: new Fill({
+            color: 'rgba(0, 0, 0, 0.4)',
+        }),
+        padding: [2, 2, 2, 2],
+        textBaseline: 'bottom',
+        offsetY: -12,
+        }),
+        image: new RegularShape({
+        radius: 6,
+        points: 3,
+        angle: Math.PI,
+        displacement: [0, 8],
+        fill: new Fill({
+            color: 'rgba(0, 0, 0, 0.4)',
+        }),
+        }),
+    });
+    
+    const segmentStyles = [segmentStyle];
+
+    const formatLength = function (line) {
+        const length = getLength(line);
+        let output;
+        if (length > 100) {
+          output = Math.round((length / 1000) * 100) / 100 + ' km';
+        } else {
+          output = Math.round(length * 100) / 100 + ' m';
+        }
+        return output;
+    };
+    
+    const formatArea = function (polygon) {
+    const area = getArea(polygon);
+    let output;
+    if (area > 10000) {
+        output = Math.round((area / 1000000) * 100) / 100 + ' km\xB2';
+    } else {
+        output = Math.round(area * 100) / 100 + ' m\xB2';
+    }
+    return output;
+    };
+
+    const measureModify = new Modify({source: measureVectorSource, style: modifyStyle});
+
+    let tipPoint;
+
+    function styleFunction(feature, segments, drawType, tip) {
+        const styles = [];
+        const geometry = feature.getGeometry();
+        const type = geometry.getType();
+        let point, label, line;
+        if (!drawType || drawType === type || type === 'Point') {
+            styles.push(style);
+            if (type === 'Polygon') {
+                point = geometry.getInteriorPoint();
+                label = formatArea(geometry);
+                line = new LineString(geometry.getCoordinates()[0]);
+            } else if (type === 'LineString') {
+                point = new Point(geometry.getLastCoordinate());
+                label = formatLength(geometry);
+                line = geometry;
+            }
+        }
+        if (segments && line) {
+            let count = 0;
+            line.forEachSegment(function (a, b) {
+                const segment = new LineString([a, b]);
+                const label = formatLength(segment);
+                if (segmentStyles.length - 1 < count) {
+                segmentStyles.push(segmentStyle.clone());
+                }
+                const segmentPoint = new Point(segment.getCoordinateAt(0.5));
+                segmentStyles[count].setGeometry(segmentPoint);
+                segmentStyles[count].getText().setText(label);
+                styles.push(segmentStyles[count]);
+                count++;
+            });
+        }
+        if (label) {
+            labelStyle.setGeometry(point);
+            labelStyle.getText().setText(label);
+            styles.push(labelStyle);
+        }
+        if (tip && type === 'Point' && !measureModify.getOverlay().getSource().getFeatures().length) {
+            tipPoint = geometry;
+            tipStyle.getText().setText(tip);
+            styles.push(tipStyle);
+        }
+        return styles;
+    }
+    
+    let draw;
+
+    function addInteraction() {
+        const drawType = measureType;
+        const activeTip = 'Click to continue drawing the ' + (drawType === 'Polygon' ? 'polygon' : 'line');
+        const idleTip = 'Click to start measuring';
+        let tip = idleTip;
+        draw = new Draw({
+            source: measureVectorSource,
+            type: drawType,
+            style: function (feature) {
+                return styleFunction(feature, showSegment.checked, drawType, tip);
+            },
+        });
+        draw.on('drawstart', function () {
+            if (clearPrevious.checked) {
+                measureVectorSource.clear();
+            }
+            measureModify.setActive(false);
+            tip = activeTip;
+        });
+        draw.on('drawend', function () {
+            modifyStyle.setGeometry(tipPoint);
+            measureModify.setActive(true);
+            map.once('pointermove', function () {
+                modifyStyle.setGeometry();
+            });
+            tip = idleTip;
+            setMeasureTF(false);
+        });
+        measureModify.setActive(true);
+        map.addInteraction(draw);
+
+        showSegment.onChange = function () {
+        measureVectorSource.changed();
+        draw.getOverlay().changed();
+
+        };
+        
+    }
+    
+    // measure
+    useEffect(() => {
+        if (map && measureTF) {
+
+            if (addedLayers) {
+                addedLayers.forEach(layer => {
+                    map.removeLayer(layer);
+                });
+            }
+            setTileFilterBtn(false);
+    
+            map.getInteractions().getArray().map((item) => {
+                if(item instanceof Draw){
+                    map.removeInteraction(item)
+                }
+            });
+
+            addInteraction();
+            map.addLayer(measureVectorLayer);
+            map.addInteraction(measureModify);
+
+        }
+    },[map, measureTF, segmentChecked, clearPreviousChecked]);
+
     // 도형 삭제
     function measureDelete() {
-        const measureLayer = map.getLayers().getArray().filter(item => item.get('title') === 'measure');
+
+        const measureLayer = map.getLayers().getArray().filter(item => item.get('title') === 'measureVector');
 
         measureLayer.forEach(measureLayer => {
             measureLayer.getSource().clear();
-        });
-        
-        const measureTooltipLayer = map.getOverlays().getArray().filter(item => item.getOptions().title === 'measureTooltipOverlay');
-        
-        measureTooltipLayer.forEach(measureTooltipLayer => {
-            map.removeOverlay(measureTooltipLayer);
         });
 
     }
@@ -718,6 +795,126 @@ function Main() {
         vectorStyleDialogClose();
     }
 
+    // 선택한 measureLayer에 따라 state
+    const figureLayerSelectChange = (e) => {
+        setFigureLayerSelected(e.target.value);
+        setFigureLayerTF(false);
+    };
+
+    // 선택한 meausreLayer 생성하기
+    function createMeasureLayer(measureLayerSelected) {
+        const layerSource = new VectorSource({
+            format: new GeoJSON(),
+            loader: function(extent, resolution, projection) {
+                const projCode = projection ? projection.getCode() : 'EPSG:5174'; 
+                const url = 'http://127.0.0.1:8080/geoserver/ows?service=WFS&' +
+                    `version=1.0.0&request=GetFeature&typeName=mission:${measureLayerSelected}&` +
+                    `outputFormat=application/json&srsname=` + projCode + '&' + 
+                    'bbox=' + extent.join(',') + ',' + projCode;
+                    const xhr = new XMLHttpRequest();
+                    xhr.open('GET', url);
+                    const onError = function() {
+                        layerSource.removeLoadedExtent(extent);
+                    }
+                    xhr.onerror = onError;
+                    xhr.onload = function() {
+                        if (xhr.status == 200) {
+                            const features = layerSource.getFormat().readFeatures(xhr.responseText);
+                            layerSource.addFeatures(features);
+                        } else {
+                            onError();
+                        }
+                    }
+                    xhr.send();
+            },
+            strategy: bbox,
+        });
+
+        const measureLayerAdd= new VectorLayer({
+            source: layerSource,
+            style: {
+                'fill-color': 'rgba(255, 255, 255, 0.2)',
+                'stroke-color': '#f00',
+                'stroke-width': 2,
+                'circle-radius': 7,
+                'circle-fill-color': '#f00',
+            },
+        });
+    
+        return measureLayerAdd;
+    };
+
+    // '그리기' Button
+    function figureLayerDraw() {
+        setFigureLayerTF(true);
+    };
+
+    let figureLayerModify;
+
+    // Draw 관련 
+    useEffect(() => {
+        if(map && figureLayerSelected && figureLayerTF) {
+            
+            if (addedLayers) {
+                addedLayers.forEach(layer => {
+                    map.removeLayer(layer);
+                });
+            }
+
+            map.getInteractions().getArray().map((item) => {
+                if(item instanceof Draw){
+                    map.removeInteraction(item)
+                }
+            });
+            
+            const measureLayerAdd = createMeasureLayer(figureLayerSelected);
+            const figureLayerSource = measureLayerAdd.getSource();
+
+            setAddedLayers([measureLayerAdd]);
+
+            map.addLayer(measureLayerAdd);
+
+            let type;
+            if(figureLayerSelected === 'point') {
+                type = 'Point';
+            } else if (figureLayerSelected === 'line') {
+                type = 'LineString';
+            } else if (figureLayerSelected === 'polygon') {
+                type = 'Polygon';
+            } else {
+                type = 'Circle';
+            };
+
+            if (figureLayerSource && map) {  
+                figureLayerModify = new Modify({ source: figureLayerSource });
+                map.addInteraction(figureLayerModify);
+
+                const draw = new Draw({
+                    source: figureLayerSource,
+                    type: type,
+                });
+
+                map.addInteraction(draw);
+    
+                const snap = new Snap({ source: figureLayerSource });
+                map.addInteraction(snap);
+
+            }
+
+        }
+    }, [map, figureLayerSelected, figureLayerTF])
+
+    // '저장' button
+    function figureDrawSave() {
+
+    };
+
+    const formatGML = new GML({
+        featureNS: 'http://mangosystem.kr',
+        featureType: `mission:${figureLayerSelected}`,
+        srsName: 'EPSG:3857'
+    });
+
     return (
         <>
 
@@ -731,8 +928,20 @@ function Main() {
                 <button onClick={measureDelete}> 도형 삭제 </button>
             </div>
 
-            <div className="addItems">
+            <div className="AddItems">
+                <label>
+                    <select onChange={figureLayerSelectChange}>
+                        <option value="figure layer list"> 그리기 선택 </option>
+                        <option value="point"> Point </option>
+                        <option value="line"> Line </option>
+                        <option value="polygon"> Polygon </option>
+                    </select>
+                </label>
             
+                <button onClick={figureLayerDraw}> 그리기 </button>
+
+                <button onClick={figureDrawSave}> 저장 </button>
+
                 {tileFilterBtn && (
                     <>
                         <input id="wmsInput" type="text" onChange={inputFilterChange}/>
@@ -867,6 +1076,18 @@ function Main() {
 
         </div>
 
+        <div>
+            <label htmlFor="segments">
+                <input type="checkbox" id="segments" checked={segmentChecked} onChange={handleSegmentsChange} />
+                Show segment lengths:&nbsp;
+            </label>
+                &nbsp;&nbsp;&nbsp;&nbsp;
+            <label htmlFor="clear">
+                <input type="checkbox" id="clear" checked={clearPreviousChecked} onChange={handleClearChange} />
+                Clear previous measure:&nbsp;
+            </label>
+        </div>
+
         <div id="popup" className="ol-popup">
             <a href="#" id="popup-closer" className="ol-popup-closer" onClick={vectorInfoPopupClose}></a>
                 <table>
@@ -909,7 +1130,6 @@ function Main() {
                 </tbody>
             </table>
             ) : null}
-
             
         </div>
 
