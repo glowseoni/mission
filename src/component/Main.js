@@ -16,7 +16,7 @@ import { Overlay } from "ol";
 import { unByKey } from 'ol/Observable.js';
 import { bbox } from 'ol/loadingstrategy.js';
 
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@material-ui/core';
+import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
 import { ChromePicker } from 'react-color';
 import { click } from "ol/events/condition.js";
 import Select from 'ol/interaction/Select.js';
@@ -26,7 +26,8 @@ import { register } from "ol/proj/proj4.js";
 import Projection from "ol/proj/Projection.js";
 import axios from "axios";
 
-import GML from 'ol/format/GML.js';
+import { GML, WFS} from 'ol/format.js';
+
 
 // 좌표계 설정 관련 
 proj4.defs([
@@ -145,7 +146,7 @@ function Main() {
 
     const [figureLayerSelected, setFigureLayerSelected] = useState('')
     const [figureLayerTF, setFigureLayerTF] = useState(false);
-    const [figureDrawType, setFigureDrawType] = useState('');
+    const [figureEditedFeatures, setFigureEditedFeatures] = useState([]);
 
     const projection = new Projection({
         code: "EPSG:3857",
@@ -406,6 +407,7 @@ function Main() {
         const idleTip = 'Click to start measuring';
         let tip = idleTip;
         draw = new Draw({
+            //geometryName: 'geom',
             source: measureVectorSource,
             type: drawType,
             style: function (feature) {
@@ -795,20 +797,20 @@ function Main() {
         vectorStyleDialogClose();
     }
 
-    // 선택한 measureLayer에 따라 state
+    // 선택한 drawLayer에 따라 state
     const figureLayerSelectChange = (e) => {
         setFigureLayerSelected(e.target.value);
         setFigureLayerTF(false);
     };
 
-    // 선택한 meausreLayer 생성하기
-    function createMeasureLayer(measureLayerSelected) {
+    // 선택한 drawLayer 생성하기
+    function createDrawLayer(figureLayerSelected) {
         const layerSource = new VectorSource({
             format: new GeoJSON(),
             loader: function(extent, resolution, projection) {
-                const projCode = projection ? projection.getCode() : 'EPSG:5174'; 
+                const projCode = projection ? projection.getCode() : 'EPSG:3857'; 
                 const url = 'http://127.0.0.1:8080/geoserver/ows?service=WFS&' +
-                    `version=1.0.0&request=GetFeature&typeName=mission:${measureLayerSelected}&` +
+                    `version=1.0.0&request=GetFeature&typeName=mission:${figureLayerSelected}&` +
                     `outputFormat=application/json&srsname=` + projCode + '&' + 
                     'bbox=' + extent.join(',') + ',' + projCode;
                     const xhr = new XMLHttpRequest();
@@ -830,7 +832,8 @@ function Main() {
             strategy: bbox,
         });
 
-        const measureLayerAdd= new VectorLayer({
+        const drawLayerAdd= new VectorLayer({
+            layerName : figureLayerSelected,
             source: layerSource,
             style: {
                 'fill-color': 'rgba(255, 255, 255, 0.2)',
@@ -840,8 +843,8 @@ function Main() {
                 'circle-fill-color': '#f00',
             },
         });
-    
-        return measureLayerAdd;
+
+        return drawLayerAdd;
     };
 
     // '그리기' Button
@@ -849,9 +852,7 @@ function Main() {
         setFigureLayerTF(true);
     };
 
-    let figureLayerModify;
-
-    // Draw 관련 
+    // Draw 
     useEffect(() => {
         if(map && figureLayerSelected && figureLayerTF) {
             
@@ -866,15 +867,17 @@ function Main() {
                     map.removeInteraction(item)
                 }
             });
+
+            const drawLayerAdd = createDrawLayer(figureLayerSelected);
+            const figureLayerSource = drawLayerAdd.getSource();
+
+            setAddedLayers([drawLayerAdd]);
             
-            const measureLayerAdd = createMeasureLayer(figureLayerSelected);
-            const figureLayerSource = measureLayerAdd.getSource();
-
-            setAddedLayers([measureLayerAdd]);
-
-            map.addLayer(measureLayerAdd);
+            map.addLayer(drawLayerAdd);
 
             let type;
+            let figureLayerModify;
+
             if(figureLayerSelected === 'point') {
                 type = 'Point';
             } else if (figureLayerSelected === 'line') {
@@ -892,6 +895,15 @@ function Main() {
                 const draw = new Draw({
                     source: figureLayerSource,
                     type: type,
+                    geometryName: 'geom'
+                });
+
+                draw.on('drawend', e => {
+                    setFigureEditedFeatures(prevFeatures => {
+                        const addFeature = [...prevFeatures, e.feature];
+                        console.log('Updated Features:', addFeature); 
+                        return addFeature;
+                    });
                 });
 
                 map.addInteraction(draw);
@@ -906,14 +918,57 @@ function Main() {
 
     // '저장' button
     function figureDrawSave() {
-
+        if (addedLayers) {
+            debugger;
+            if (figureEditedFeatures.length > 0) {
+                figureEditedFeatures.forEach(feature => {
+                    transactWFST(figureLayerSelected, feature);
+                    console.log(feature);
+                });
+            } else {
+                console.log('저장할 피처가 없습니다.');
+            }
+        } else {
+            console.log('저장할 레이어가 없습니다.');
+        }
     };
 
-    const formatGML = new GML({
-        featureNS: 'http://mangosystem.kr',
-        featureType: `mission:${figureLayerSelected}`,
-        srsName: 'EPSG:3857'
-    });
+    const transactWFST = (typeName, feature) => {
+        debugger
+        
+        const formatWFS = new WFS();
+        const formatGML = new GML({
+            featureNS: 'http://www.mangosystem.com',
+            featureType: typeName,
+            srsName: 'EPSG:3857'
+        });
+
+        const node = formatWFS.writeTransaction([feature], null, null, formatGML);
+
+        let dataStr = new XMLSerializer().serializeToString(node);
+        
+        if(dataStr.indexOf('geometry') !== -1){
+            dataStr = dataStr.replace(/geometry/gi, 'geom');
+        };
+
+        try {
+            axios({
+                url: 'http://127.0.0.1/geoserver/mission/ows/',
+                method: 'POST',
+                headers: {
+                    'Content-Type': "text/xml",
+                },
+                data: dataStr
+            }).then(res => {
+                console.log(res);
+            }).catch(err => {
+                console.error(err);
+            })
+        } catch (error) {
+            console.error('도형 저장 중 오류 발생 .. ', error);
+        }
+
+    };
 
     return (
         <>
@@ -1076,15 +1131,15 @@ function Main() {
 
         </div>
 
-        <div>
+        <div className="measureAddItems">
             <label htmlFor="segments">
                 <input type="checkbox" id="segments" checked={segmentChecked} onChange={handleSegmentsChange} />
-                Show segment lengths:&nbsp;
+                segment 거리 표시 &nbsp;
             </label>
                 &nbsp;&nbsp;&nbsp;&nbsp;
             <label htmlFor="clear">
                 <input type="checkbox" id="clear" checked={clearPreviousChecked} onChange={handleClearChange} />
-                Clear previous measure:&nbsp;
+                이전 측정 지우기 &nbsp;
             </label>
         </div>
 
