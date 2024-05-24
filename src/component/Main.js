@@ -407,7 +407,6 @@ function Main() {
         const idleTip = 'Click to start measuring';
         let tip = idleTip;
         draw = new Draw({
-            //geometryName: 'geom',
             source: measureVectorSource,
             type: drawType,
             style: function (feature) {
