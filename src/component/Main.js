@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 
 import './Map.css'
 import Map from 'ol/Map.js';
@@ -12,7 +12,7 @@ import { Circle as CircleStyle, Fill, RegularShape, Stroke, Style, Text } from '
 import { Circle, LineString, Point, Polygon } from "ol/geom.js";
 import { getArea, getLength } from 'ol/sphere.js';
 
-import { Overlay } from "ol"; 
+import { Collection, Overlay } from "ol"; 
 import { unByKey } from 'ol/Observable.js';
 import { bbox } from 'ol/loadingstrategy.js';
 
@@ -146,9 +146,9 @@ function Main() {
 
     const [figureLayerSelected, setFigureLayerSelected] = useState('')
     const [figureLayerTF, setFigureLayerTF] = useState(false);
-    const [figureEditedFeatures, setFigureEditedFeatures] = useState([]);
+    const [figureAddFeatures, setFigureAddFeatures] = useState([]);
+    const [figureEditFeatures, setFigureEditFeatures] = useState([]);
 
-    const [wfstType, setWfstType] = useState('');
     const [wfstDeleteTF, setWfstDeleteTF] = useState(false);
 
     const projection = new Projection({
@@ -843,12 +843,13 @@ function Main() {
         setWfstDeleteTF(true);
 
         if(selectedFeature.length > 0) {
-            setFigureEditedFeatures(selectedFeature);
+            setFigureAddFeatures(selectedFeature);
 
         } else {
             setWfstDeleteTF(false);
         }
     });
+    
     // 선택한 drawLayer 생성하기
     function createDrawLayer(figureLayerSelected) {
         const layerSource = new VectorSource({
@@ -899,7 +900,7 @@ function Main() {
 
             map.getOverlays().getArray()[0].setPosition(coordinate);
 
-            setFigureEditedFeatures(prevFeatures => {
+            setFigureAddFeatures(prevFeatures => {
                 const addFeature = [...prevFeatures, e.feature];
                 return addFeature;
             });
@@ -908,7 +909,7 @@ function Main() {
         return drawLayerAdd;
 
     };
-    
+
     // '그리기' Button
     function figureLayerDraw() {
         const figureLayer = map.getLayers().getArray().filter(item => item.get('title') === 'drawLayer');
@@ -932,6 +933,17 @@ function Main() {
             figureLayerModify = new Modify({ source: figureLayerSource });
             map.addInteraction(figureLayerModify);
 
+            figureLayerModify.on('modifyend', e => {
+                setFigureEditFeatures(prevFeatures => {
+                    let edit = e.features.getArray();
+                    const editFeature = [...prevFeatures, edit];
+                    console.log(editFeature);
+                    debugger;
+                    return editFeature;
+                });
+                
+            })
+
             const draw = new Draw({
                 source: figureLayerSource,
                 type: type,
@@ -939,19 +951,19 @@ function Main() {
             });
 
             draw.on('drawend', e => {
-                setFigureEditedFeatures(prevFeatures => {
+                setFigureAddFeatures(prevFeatures => {
                     const addFeature = [...prevFeatures, e.feature];
                     return addFeature;
                 });
-                setWfstType('insert');
             });
 
             map.addInteraction(draw);
-
+            setWfstDeleteTF(false);
             const snap = new Snap({ source: figureLayerSource });
             map.addInteraction(snap);
             
         }
+
     };
 
     // Draw 
@@ -983,14 +995,19 @@ function Main() {
     function figureDrawSave() {
         if (addedLayers) {
 
-            if (figureEditedFeatures.length > 0) {
+            if (figureAddFeatures.length > 0) {
 
-                figureEditedFeatures.forEach(feature => {
-                    if (wfstType === 'insert') {
-                        transactWFST(figureLayerSelected, feature, 'insert');
-                    } else if (wfstType === 'update') {
-                        transactWFST(figureLayerSelected, feature, 'update');
-                    }
+                figureAddFeatures.forEach(feature => {
+                    transactWFST(figureLayerSelected, feature, 'insert');
+                    
+                    console.log(feature);
+                    alert('저장 완료');
+                });
+            } else if (figureEditFeatures.length > 0) {
+            
+                figureEditFeatures.forEach(feature => {
+                    debugger;
+                    transactWFST(figureLayerSelected, feature, 'update');
                     
                     console.log(feature);
                     alert('저장 완료');
@@ -1003,6 +1020,7 @@ function Main() {
         }
     };
 
+    // wfst 요청
     const transactWFST = (typeName, feature, type) => {
         const formatWFS = new WFS();
         const formatGML = new GML({
@@ -1015,6 +1033,9 @@ function Main() {
         switch (type) {
             case 'insert':
                 node = formatWFS.writeTransaction([feature], null, null, formatGML);
+                break;
+            case 'update':
+                node = formatWFS.writeTransaction(null, feature, null, formatGML);
                 break;
             case 'delete':
                 node = formatWFS.writeTransaction(null, null, [feature], formatGML);
@@ -1047,18 +1068,22 @@ function Main() {
 
     };
 
+    // delete
     function figureDelete() {
-        if (figureEditedFeatures.length > 0) {
-            figureEditedFeatures.forEach(feature => {
+        if (figureAddFeatures.length > 0) {
+            figureAddFeatures.forEach(feature => {
                 transactWFST(figureLayerSelected, feature, 'delete');
                 setWfstDeleteTF(false);
+
                 alert('삭제 완료');
                 
             });
         } else {
-            console.log('저장할 피처가 없습니다.');
+            console.log('삭제할 피처가 없습니다.');
         }
     }
+
+    // const root = ReactDOM.createRoot(document.getElementById('map'));
 
     return (
         <>
