@@ -148,8 +148,11 @@ function Main() {
     const [figureLayerTF, setFigureLayerTF] = useState(false);
     const [figureAddFeatures, setFigureAddFeatures] = useState([]);
     const [figureEditFeatures, setFigureEditFeatures] = useState([]);
+    const [figureDeleteFeatures, setFigureDeleteFeatures] = useState([]);
 
-    const [wfstDeleteTF, setWfstDeleteTF] = useState(false);
+    const [wfstDeleteTF, setWfstDeleteTF] = useState(null);
+    const [coordinateY, setCoordinateY] = useState('');
+    const [coordinateX, setCoordinateX] = useState('');
 
     const projection = new Projection({
         code: "EPSG:3857",
@@ -163,21 +166,21 @@ function Main() {
                 source: new OSM(),
             });
 
-            const container = document.getElementById('popup');
+            const vectorPopup = document.getElementById('popup');
 
-            const infoOverlay = new Overlay({
-                element: container,
+            const vectorInfoOverlay = new Overlay({
+                element: vectorPopup
             });
 
             const defaultMap = new Map({
                 layers: [raster],
-                overlays: [infoOverlay],
+                overlays: [vectorInfoOverlay],
                 target: 'map',
                 view: new View({
                     center: [14135461.422264, 4517734.119767],
                     zoom: 11,
                     minZoom: 5.5,
-                    maxZoom: 20,
+                    maxZoom: 20
                 }),
             },);
 
@@ -805,51 +808,7 @@ function Main() {
         setFigureLayerSelected(e.target.value);
         setFigureLayerTF(true);
     };
-
-    // figure feature 선택 관련
-    const figureSelected = 
-        new Style({
-        fill: new Fill({
-            color: 'rgba(0, 0, 0, 0.7)',
-        }),
-        stroke: new Stroke({
-            color: 'rgba(0, 0, 0, 0.7)',
-            width: 2,
-        }),
-        image: new CircleStyle({
-            radius: 7,
-            stroke: new Stroke({
-                color: 'rgba(0, 0, 0, 0.7)',
-            }),
-            fill: new Fill({
-                color: 'rgba(0, 0, 0, 0.7)',
-            }),
-        }),
-    });
-
-    function figureSelectStyle(feature) {
-        const color = feature.get('COLOR') || 'rgba(0, 0, 0, 0.7)';
-        figureSelected.getFill().setColor(color);
-        return figureSelected;
-    };
-
-    const figureSelect = new Select({
-        condition: click,
-        style: figureSelectStyle,
-    });
-
-    figureSelect.on('select', (e) => {
-        const selectedFeature = e.selected;
-        setWfstDeleteTF(true);
-
-        if(selectedFeature.length > 0) {
-            setFigureAddFeatures(selectedFeature);
-
-        } else {
-            setWfstDeleteTF(false);
-        }
-    });
-    
+    const [figureDrawVecotrSource, setFigureDrawVectorSource] = useState();
     // 선택한 drawLayer 생성하기
     function createDrawLayer(figureLayerSelected) {
         const layerSource = new VectorSource({
@@ -892,23 +851,127 @@ function Main() {
             },
         });
 
-        map.on('click', function (e) {
-            if (!map.getInteractions().getArray().includes(figureSelect)) {
-                map.addInteraction(figureSelect);
+        if(figureSelect && map) {
+            const viewport = map.getViewport();
+            if (viewport) {
+                viewport.addEventListener('contextmenu', function (e) {
+
+                    rightClick(e, map, figureSelect);
+                    
+                    if (!map.getInteractions().getArray().includes(figureSelect)) {
+                        map.addInteraction(figureSelect);
+                    }
+                    
+                }
+                
+            );
+
             }
-            const coordinate = e.coordinate;
 
-            map.getOverlays().getArray()[0].setPosition(coordinate);
-
-            setFigureAddFeatures(prevFeatures => {
-                const addFeature = [...prevFeatures, e.feature];
-                return addFeature;
-            });
-        });
-
+        }
+        setFigureDrawVectorSource(layerSource);
+        
         return drawLayerAdd;
 
     };
+
+    
+    // figure feature 선택 관련
+    const figureSelected = 
+        new Style({
+        fill: new Fill({
+            color: 'rgba(0, 0, 0, 0.7)',
+        }),
+        stroke: new Stroke({
+            color: 'rgba(0, 0, 0, 0.7)',
+            width: 2,
+        }),
+        image: new CircleStyle({
+            radius: 7,
+            stroke: new Stroke({
+                color: 'rgba(0, 0, 0, 0.7)',
+            }),
+            fill: new Fill({
+                color: 'rgba(0, 0, 0, 0.7)',
+            }),
+        }),
+    });
+
+    function figureSelectStyle(feature) {
+        const color = feature.get('COLOR') || 'rgba(0, 0, 0, 0.7)';
+        figureSelected.getFill().setColor(color);
+        return figureSelected;
+    };
+
+    const figureSelect = new Select({
+        condition: click,
+        style: figureSelectStyle,
+    });
+
+    const rightClick = (e, map, select) => {
+        e.preventDefault();
+
+        const coordinateY = e.clientY - 70;
+        const coordinateX = e.clientX;
+
+        setCoordinateY(coordinateY);
+        setCoordinateX(coordinateX);
+
+        const deleteMenu = document.getElementById('deleteMenu');
+
+        let clickEvent = map.forEachFeatureAtPixel(map.getEventPixel(e),
+			function (feature, layer) {
+				return { feature, layer };
+		});
+        
+        if (clickEvent && clickEvent.layer !== null) {
+            const selectFeature = clickEvent.feature;
+            const selectLayer = clickEvent.layer;
+
+            if (select) {
+                select.getFeatures().clear();
+                select.getFeatures().push(selectFeature);
+                setFigureDeleteFeatures(prevFeatures => {
+                    const addFeature = [...prevFeatures, selectFeature];
+                    return addFeature;
+                });
+            
+                if(selectFeature) {
+                    deleteMenu.style.display = 'block';
+                } else {
+                    deleteMenu.style.display = 'none';
+                }
+            }
+            
+        } else {
+            console.log('삭제 메뉴 안뜸 에러')
+        }
+    }
+
+    // create DrawLayer
+    useEffect(() => {
+        if(figureLayerSelected && figureLayerTF) {
+            
+            if (addedLayers) {
+                addedLayers.forEach(layer => {
+                    map.removeLayer(layer);
+                });
+
+            }
+    
+            map.getInteractions().getArray().map((item) => {
+                if(item instanceof Draw){
+                    map.removeInteraction(item)
+                }
+            });
+
+            const drawLayerAdd = createDrawLayer(figureLayerSelected);
+            setAddedLayers([drawLayerAdd]);
+        
+            map.addLayer(drawLayerAdd);
+
+        }
+    }, [figureLayerSelected, figureLayerTF])
 
     // '그리기' Button
     function figureLayerDraw() {
@@ -938,7 +1001,7 @@ function Main() {
                     let edit = e.features.getArray();
                     const editFeature = [...prevFeatures, edit];
                     console.log(editFeature);
-                    debugger;
+
                     return editFeature;
                 });
                 
@@ -958,38 +1021,13 @@ function Main() {
             });
 
             map.addInteraction(draw);
-            setWfstDeleteTF(false);
+            
             const snap = new Snap({ source: figureLayerSource });
             map.addInteraction(snap);
             
         }
 
     };
-
-    // Draw 
-    useEffect(() => {
-        if(figureLayerSelected && figureLayerTF) {
-            
-            if (addedLayers) {
-                addedLayers.forEach(layer => {
-                    map.removeLayer(layer);
-                });
-            }
-
-            map.getInteractions().getArray().map((item) => {
-                if(item instanceof Draw){
-                    map.removeInteraction(item)
-                }
-            });
-
-            const drawLayerAdd = createDrawLayer(figureLayerSelected);
-            setAddedLayers([drawLayerAdd]);
-        
-            map.addLayer(drawLayerAdd);
-
-        }
-    }, [figureLayerSelected, figureLayerTF])
-
     
     // '저장' button
     function figureDrawSave() {
@@ -1006,7 +1044,7 @@ function Main() {
             } else if (figureEditFeatures.length > 0) {
             
                 figureEditFeatures.forEach(feature => {
-                    debugger;
+
                     transactWFST(figureLayerSelected, feature, 'update');
                     
                     console.log(feature);
@@ -1059,6 +1097,7 @@ function Main() {
                 data: dataStr
             }).then(res => {
                 console.log(res);
+                setWfstDeleteTF(false);
             }).catch(err => {
                 console.error(err);
             })
@@ -1067,23 +1106,51 @@ function Main() {
         }
 
     };
-
+    
     // delete
     function figureDelete() {
-        if (figureAddFeatures.length > 0) {
-            figureAddFeatures.forEach(feature => {
-                transactWFST(figureLayerSelected, feature, 'delete');
-                setWfstDeleteTF(false);
+        setWfstDeleteTF(true);
+    }
 
-                alert('삭제 완료');
+    const deleteApply = (feature) => {
+        
+        for (let item of feature) {
+            const deleteLayer = map.getLayers().getArray().filter(item => item.get('title') === 'drawLayer');
+            const deleteLayerSource = deleteLayer[0].getSource();
+            
+            deleteLayerSource.removeFeature(item);
+        }
+        
+    };
+
+    // feature delete 
+    useEffect(() => {
+
+        const deleteMenu = document.getElementById('deleteMenu');
+
+        if(wfstDeleteTF) {
+                if (figureDeleteFeatures.length > 0) {
+                    figureDeleteFeatures.forEach(feature => {
+                        transactWFST(figureLayerSelected, feature, 'delete');
+                        alert('삭제 완료');
+                        deleteMenu.style.display = 'none';
+                    });
+                } 
                 
-            });
+        } else if (wfstDeleteTF === false) {
+            deleteApply(figureDeleteFeatures);
+
+            const drawLayerAdd = createDrawLayer(figureLayerSelected);
+            setAddedLayers([drawLayerAdd]);
+        
+            map.addLayer(drawLayerAdd);
+
         } else {
             console.log('삭제할 피처가 없습니다.');
         }
-    }
 
-    // const root = ReactDOM.createRoot(document.getElementById('map'));
+    }, [wfstDeleteTF])
+
 
     return (
         <>
@@ -1111,11 +1178,13 @@ function Main() {
                 <button onClick={figureLayerDraw}> 그리기 </button>
 
                 <button onClick={figureDrawSave}> 저장 </button>
-
-                {wfstDeleteTF && (
-                    <button onClick={figureDelete}> 삭제 </button>
-                )}
                 
+                
+                <div>
+                    <ul id="deleteMenu" className="deleteMenu" style={{top: coordinateY, left: coordinateX}}>
+                        <li onClick={figureDelete}> 삭제 </li>
+                    </ul>
+                </div>
 
                 {tileFilterBtn && (
                     <>
