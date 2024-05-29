@@ -149,6 +149,7 @@ function Main() {
     const [figureAddFeatures, setFigureAddFeatures] = useState([]);
     const [figureEditFeatures, setFigureEditFeatures] = useState([]);
     const [figureDeleteFeatures, setFigureDeleteFeatures] = useState([]);
+    const [figureDrawVectorSource, setFigureDrawVectorSource] = useState();
 
     const [wfstDeleteTF, setWfstDeleteTF] = useState(null);
     const [coordinateY, setCoordinateY] = useState('');
@@ -808,7 +809,7 @@ function Main() {
         setFigureLayerSelected(e.target.value);
         setFigureLayerTF(true);
     };
-    const [figureDrawVecotrSource, setFigureDrawVectorSource] = useState();
+
     // 선택한 drawLayer 생성하기
     function createDrawLayer(figureLayerSelected) {
         const layerSource = new VectorSource({
@@ -956,7 +957,6 @@ function Main() {
                 addedLayers.forEach(layer => {
                     map.removeLayer(layer);
                 });
-
             }
     
             map.getInteractions().getArray().map((item) => {
@@ -1056,6 +1056,7 @@ function Main() {
         } else {
             console.log('저장할 레이어가 없습니다.');
         }
+        
     };
 
     // wfst 요청
@@ -1096,8 +1097,8 @@ function Main() {
                 },
                 data: dataStr
             }).then(res => {
-                console.log(res);
                 setWfstDeleteTF(false);
+                refresh();
             }).catch(err => {
                 console.error(err);
             })
@@ -1117,11 +1118,21 @@ function Main() {
         for (let item of feature) {
             const deleteLayer = map.getLayers().getArray().filter(item => item.get('title') === 'drawLayer');
             const deleteLayerSource = deleteLayer[0].getSource();
-            
+
             deleteLayerSource.removeFeature(item);
         }
         
     };
+
+    const refresh = () => {
+        figureDrawVectorSource.clear();
+
+        const drawLayerAdd = createDrawLayer(figureLayerSelected);
+        setAddedLayers([drawLayerAdd]);
+    
+        map.addLayer(drawLayerAdd);
+
+    }
 
     // feature delete 
     useEffect(() => {
