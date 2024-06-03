@@ -57,6 +57,7 @@ border-top-color: #ffcc33;
     display: inline-block;
     width: 60%;
 }
+
 .measureBtn button {
     padding: 10px;
     margin-left: 10px;
@@ -78,14 +79,12 @@ border-top-color: #ffcc33;
     height: 40px;
     font-size: 15px;
     text-align: center;
-    display: inline;
 }
 
 #wmsBtn {
     padding: 10px;
     margin-left: 10px;
     font-size: 15px;
-    display: inline-block;
 }
 
 .layerCreate button {

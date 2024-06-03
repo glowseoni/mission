@@ -149,7 +149,6 @@ function Main() {
     const [figureAddFeatures, setFigureAddFeatures] = useState([]);
     const [figureEditFeatures, setFigureEditFeatures] = useState([]);
     const [figureDeleteFeatures, setFigureDeleteFeatures] = useState([]);
-    const [figureDrawVectorSource, setFigureDrawVectorSource] = useState();
 
     const [wfstDeleteTF, setWfstDeleteTF] = useState(null);
     const [coordinateY, setCoordinateY] = useState('');
@@ -196,19 +195,19 @@ function Main() {
 
     },[map]);
 
-    // 버튼 클릭 시 value(lingString, polygon)에 따라 measureType State (거리, 면적)
+    // 버튼 value(lingString, polygon)에 따라 measureType State (거리, 면적)
     function measureTypeSelect (e) {
         setMeasureType(e.target.value);
         setMeasureTF(true);
     }
 
-    // 체크박스 선택에 따라 true, false State
+    // 체크박스 value에 따라 true, false State
     const handleSegmentsChange = () => {
-        setSegmentChecked(!segmentChecked);
+        setSegmentChecked(false);
     };
 
     const handleClearChange = (e) => {
-        setClearPreviousChecked(!clearPreviousChecked);
+        setClearPreviousChecked(false);
     };
 
     // measure 관련
@@ -219,7 +218,7 @@ function Main() {
     
     const measureVectorLayer = new VectorLayer({
         source: measureVectorSource,
-        title: "measureVector",
+        title: "measureLayer",
         style: function (feature) {
             return styleFunction(feature, showSegment.checked)
         }
@@ -408,7 +407,7 @@ function Main() {
     
     let draw;
 
-    function addInteraction() {
+    function measureInteraction() {
         const drawType = measureType;
         const activeTip = 'Click to continue drawing the ' + (drawType === 'Polygon' ? 'polygon' : 'line');
         const idleTip = 'Click to start measuring';
@@ -449,32 +448,25 @@ function Main() {
     
     // measure
     useEffect(() => {
-        if (map && measureTF) {
+        if (measureTF) {
 
-            if (addedLayers) {
-                addedLayers.forEach(layer => {
-                    map.removeLayer(layer);
-                });
-            }
+            removeLayer();
+            removeDrawInteraction();
+
             setTileFilterBtn(false);
-    
-            map.getInteractions().getArray().map((item) => {
-                if(item instanceof Draw){
-                    map.removeInteraction(item)
-                }
-            });
 
-            addInteraction();
+            measureInteraction();
+
             map.addLayer(measureVectorLayer);
             map.addInteraction(measureModify);
 
         }
-    },[map, measureTF, segmentChecked, clearPreviousChecked]);
+    },[measureTF]);
 
     // 도형 삭제
     function measureDelete() {
 
-        const measureLayer = map.getLayers().getArray().filter(item => item.get('title') === 'measureVector');
+        const measureLayer = map.getLayers().getArray().filter(item => item.get('title') === 'measureLayer');
 
         measureLayer.forEach(measureLayer => {
             measureLayer.getSource().clear();
@@ -482,34 +474,29 @@ function Main() {
 
     }
     
+
     // select option 선택 할 경우 해당 value(레이어 목록) 값으로 변경
     const layerSelectChange = (e) => {
-        setTileWmsInfo(null);
         setLayerSelect(e.target.value);
+        setTileWmsInfo(null);
         setLayerType(null); 
     };
 
-    // button 클릭 시 지정해준 type(tile, vector)으로 LayerType State (tile, vector)
+    // button value에 따라(tile, vector) LayerType State
     const layerTypeChange = (type) => {
         setLayerType(type); 
     };
 
-    // type에 따른 layer 생성
+    // tile, vector layer 생성
     useEffect(() => {
-        if(map && layerSelect && layerType) {
+        if(layerSelect && layerType) {
 
-            if (addedLayers) {
-                addedLayers.forEach(layer => {
-                    map.removeLayer(layer);
-                });
-            }
+            removeLayer();
 
             let layerToAdd = null;
 
             if(layerType === 'tile') {
                 layerToAdd = createTileLayer(layerSelect);
-
-                setVectorStyleBtn(false);
 
                 if(layerSelect === 'admin_emd') {
                     setTileFilterBtn(true);
@@ -517,18 +504,20 @@ function Main() {
                     setTileFilterBtn(false);
                 }
 
+                setVectorStyleBtn(false);
+
             } else if (layerType === 'vector') {
                 layerToAdd = createVectorLayer(layerSelect);
+
                 setTileFilterBtn(false);
             }
 
-            // 레이어 배열로 설정해야함 
             setAddedLayers([layerToAdd]);
 
             map.addLayer(layerToAdd);
         }
 
-    },[map, layerSelect, layerType]);
+    },[layerSelect, layerType]);
 
     // Tile layer 생성 함수
     function createTileLayer(layerSelect, inputFilter) {
@@ -550,6 +539,7 @@ function Main() {
 
         const tileLayer = new TileLayer({
             extent: [14043736.988321789, 4464228.199967377, 14227185.856206212, 4571240.039566623],
+            title: "tileLayer",
             source: wmsSource,
         });
 
@@ -558,6 +548,7 @@ function Main() {
         return tileLayer;
     }
 
+    // tile input value 받아오기
     function inputFilterChange(e) {
         setInputFilter(e.target.value);
     }
@@ -565,11 +556,7 @@ function Main() {
     // input 값으로 tileLayer filter 적용 함수 
     function inputFilterApply()  {
         
-        if (addedLayers) {
-            addedLayers.forEach(layer => {
-                map.removeLayer(layer);
-            });
-        }
+        removeLayer();
 
         const newLayer = createTileLayer(layerSelect, inputFilter);
 
@@ -603,6 +590,7 @@ function Main() {
         
     }
 
+    // wms 정보 관련
     useEffect(() => {
 
         if(addedLayers && layerType === 'tile') {
@@ -614,7 +602,7 @@ function Main() {
             }
         };
 
-    }, [map, addedLayers, layerType]);
+    }, [addedLayers, layerType]);
 
 
     // Vector layer 생성 함수
@@ -645,7 +633,7 @@ function Main() {
             },
             strategy: bbox,
         });
-        
+
         const vectorOverlay = new VectorLayer({
             source: vectorSource,
         });
@@ -793,7 +781,7 @@ function Main() {
         const features = vectorLayers.getSource().getFeatures();
         features.forEach(feature => {
             const style = styles[vectorLayerType];
-            
+
             if(style) {
                 feature.setStyle(style);
             } else {
@@ -840,7 +828,7 @@ function Main() {
         });
 
         const drawLayerAdd= new VectorLayer({
-            title: "drawLayer",
+            title: "figureLayer",
             layerName : figureLayerSelected,
             source: layerSource,
             style: {
@@ -858,25 +846,38 @@ function Main() {
                 viewport.addEventListener('contextmenu', function (e) {
 
                     rightClick(e, map, figureSelect);
-                    
+
                     if (!map.getInteractions().getArray().includes(figureSelect)) {
                         map.addInteraction(figureSelect);
                     }
-                    
+
                 }
-                
+
             );
 
             }
 
         }
-        setFigureDrawVectorSource(layerSource);
-        
+
         return drawLayerAdd;
 
     };
 
-    
+    // create DrawLayer
+    useEffect(() => {
+        if(figureLayerSelected && figureLayerTF) {
+            
+            removeLayer();
+            removeDrawInteraction();
+
+            const drawLayerAdd = createDrawLayer(figureLayerSelected);
+            setAddedLayers([drawLayerAdd]);
+        
+            map.addLayer(drawLayerAdd);
+
+        }
+    }, [figureLayerSelected, figureLayerTF])
+
     // figure feature 선택 관련
     const figureSelected = 
         new Style({
@@ -909,6 +910,7 @@ function Main() {
         style: figureSelectStyle,
     });
 
+    // feature 우클릭
     const rightClick = (e, map, select) => {
         e.preventDefault();
 
@@ -924,10 +926,9 @@ function Main() {
 			function (feature, layer) {
 				return { feature, layer };
 		});
-        
+
         if (clickEvent && clickEvent.layer !== null) {
             const selectFeature = clickEvent.feature;
-            const selectLayer = clickEvent.layer;
 
             if (select) {
                 select.getFeatures().clear();
@@ -936,46 +937,22 @@ function Main() {
                     const addFeature = [...prevFeatures, selectFeature];
                     return addFeature;
                 });
-            
+
                 if(selectFeature) {
                     deleteMenu.style.display = 'block';
                 } else {
                     deleteMenu.style.display = 'none';
                 }
             }
-            
+
         } else {
             console.log('삭제 메뉴 안뜸 에러')
         }
     }
 
-    // create DrawLayer
-    useEffect(() => {
-        if(figureLayerSelected && figureLayerTF) {
-            
-            if (addedLayers) {
-                addedLayers.forEach(layer => {
-                    map.removeLayer(layer);
-                });
-            }
-    
-            map.getInteractions().getArray().map((item) => {
-                if(item instanceof Draw){
-                    map.removeInteraction(item)
-                }
-            });
-
-            const drawLayerAdd = createDrawLayer(figureLayerSelected);
-            setAddedLayers([drawLayerAdd]);
-        
-            map.addLayer(drawLayerAdd);
-
-        }
-    }, [figureLayerSelected, figureLayerTF])
-
     // '그리기' Button
     function figureLayerDraw() {
-        const figureLayer = map.getLayers().getArray().filter(item => item.get('title') === 'drawLayer');
+        const figureLayer = map.getLayers().getArray().filter(item => item.get('title') === 'figureLayer');
         const figureLayerSource = figureLayer[0].getSource();
 
         let type;
@@ -987,12 +964,10 @@ function Main() {
             type = 'MultiLineString';
         } else if (figureLayerSelected === 'polygon') {
             type = 'MultiPolygon';
-        } else {
-            type = 'Circle';
-        };
+        } 
 
         if (figureLayerSource) {  
-        
+
             figureLayerModify = new Modify({ source: figureLayerSource });
             map.addInteraction(figureLayerModify);
 
@@ -1021,14 +996,14 @@ function Main() {
             });
 
             map.addInteraction(draw);
-            
+
             const snap = new Snap({ source: figureLayerSource });
             map.addInteraction(snap);
-            
+
         }
 
     };
-    
+
     // '저장' button
     function figureDrawSave() {
         if (addedLayers) {
@@ -1037,18 +1012,17 @@ function Main() {
 
                 figureAddFeatures.forEach(feature => {
                     transactWFST(figureLayerSelected, feature, 'insert');
-                    
-                    console.log(feature);
-                    alert('저장 완료');
+
+                    removeDrawInteraction();
+
                 });
             } else if (figureEditFeatures.length > 0) {
-            
+
                 figureEditFeatures.forEach(feature => {
 
                     transactWFST(figureLayerSelected, feature, 'update');
                     
-                    console.log(feature);
-                    alert('저장 완료');
+                    removeDrawInteraction();
                 });
             } else {
                 console.log('저장할 피처가 없습니다.');
@@ -1056,7 +1030,7 @@ function Main() {
         } else {
             console.log('저장할 레이어가 없습니다.');
         }
-        
+
     };
 
     // wfst 요청
@@ -1083,7 +1057,7 @@ function Main() {
         }
 
         let dataStr = new XMLSerializer().serializeToString(node);
-        
+
         if(dataStr.indexOf('geometry') !== -1){
             dataStr = dataStr.replace(/geometry/gi, 'geom');
         };
@@ -1107,32 +1081,23 @@ function Main() {
         }
 
     };
-    
-    // delete
+
+    // figure feature 삭제 button
     function figureDelete() {
         setWfstDeleteTF(true);
     }
 
+    // figure feature 삭제 layer 적용
     const deleteApply = (feature) => {
-        
+
         for (let item of feature) {
-            const deleteLayer = map.getLayers().getArray().filter(item => item.get('title') === 'drawLayer');
+            const deleteLayer = map.getLayers().getArray().filter(item => item.get('title') === 'figureLayer');
             const deleteLayerSource = deleteLayer[0].getSource();
 
             deleteLayerSource.removeFeature(item);
         }
-        
+
     };
-
-    const refresh = () => {
-        figureDrawVectorSource.clear();
-
-        const drawLayerAdd = createDrawLayer(figureLayerSelected);
-        setAddedLayers([drawLayerAdd]);
-    
-        map.addLayer(drawLayerAdd);
-
-    }
 
     // feature delete 
     useEffect(() => {
@@ -1156,12 +1121,41 @@ function Main() {
         
             map.addLayer(drawLayerAdd);
 
-        } else {
-            console.log('삭제할 피처가 없습니다.');
-        }
+        } 
 
     }, [wfstDeleteTF])
 
+    // drawLayer 새로고침
+    const refresh = () => {
+        
+        removeLayer();
+    
+        const figureDrawLayer = map.getLayers().getArray().filter(item => item.get('title') === 'figureLayer');
+
+        figureDrawLayer.forEach(figureDrawLayer => {
+            figureDrawLayer.getSource().clear();
+        });
+
+    }
+
+    // 기존 layer 제거
+    function removeLayer() {
+        if(addedLayers) {
+            map.getLayers().getArray().filter(item => item.get('title') === 'measureLayer').forEach(layer => map.removeLayer(layer));
+            map.getLayers().getArray().filter(item => item.get('title') === 'tileLayer').forEach(layer => map.removeLayer(layer));
+            map.getLayers().getArray().filter(item => item.get('title') === 'vectorLayer').forEach(layer => map.removeLayer(layer));
+            map.getLayers().getArray().filter(item => item.get('title') === 'figureLayer').forEach(layer => map.removeLayer(layer));
+        }
+    }
+
+    // 기존 Draw Interaction 제거
+    function removeDrawInteraction() {
+        for(let interaction of map.getInteractions().getArray()){
+            if(interaction instanceof Draw){
+                map.removeInteraction(interaction);
+            }
+        }
+    }
 
     return (
         <>
@@ -1189,14 +1183,7 @@ function Main() {
                 <button onClick={figureLayerDraw}> 그리기 </button>
 
                 <button onClick={figureDrawSave}> 저장 </button>
-                
-                
-                <div>
-                    <ul id="deleteMenu" className="deleteMenu" style={{top: coordinateY, left: coordinateX}}>
-                        <li onClick={figureDelete}> 삭제 </li>
-                    </ul>
-                </div>
-
+            
                 {tileFilterBtn && (
                     <>
                         <input id="wmsInput" type="text" onChange={inputFilterChange}/>
@@ -1207,6 +1194,10 @@ function Main() {
                 {vectorStyleBtn &&
                     <button onClick={vectorStyleDialogOpen}> 스타일 </button>
                 }
+
+                <ul id="deleteMenu" className="deleteMenu" style={{top: coordinateY, left: coordinateX}}>
+                    <li onClick={figureDelete}> 삭제 </li>
+                </ul>
 
             </div>
 
